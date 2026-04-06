@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2FA Auth App</title>
+  <link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <section id="lock-screen" class="lock-screen">
+      <div class="lock-card">
+        <p class="eyebrow">Secure Vault</p>
+        <h1 id="lock-title">Unlock 2FA Auth App</h1>
+        <p id="lock-description" class="lock-description">
+          Enter your master password to decrypt your saved accounts.
+        </p>
+
+        <form id="unlock-form" class="lock-form">
+          <label class="field">
+            <span id="primary-password-label">Master Password</span>
+            <input id="unlock-password-input" type="password" minlength="8" required>
+          </label>
+
+          <label id="unlock-confirm-field" class="field hidden">
+            <span>Confirm Master Password</span>
+            <input id="unlock-password-confirm-input" type="password" minlength="8">
+          </label>
+
+          <p id="unlock-form-error" class="form-error hidden"></p>
+
+          <button id="unlock-submit-button" class="primary-button" type="submit">Unlock Vault</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="vault-shell" class="hidden">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Chrome Extension</p>
+          <h1>2FA Auth App</h1>
+        </div>
+        <button id="add-account-button" class="primary-button round-button" type="button" aria-label="Add account">+</button>
+      </header>
+
+      <section class="toolbar" aria-label="Actions">
+        <button id="import-button" class="secondary-button" type="button">Import Backup</button>
+        <button id="export-button" class="secondary-button" type="button">Export Backup</button>
+        <button id="change-password-button" class="secondary-button" type="button">Change Password</button>
+        <button id="lock-button" class="secondary-button" type="button">Lock Now</button>
+      </section>
+
+      <section id="status-banner" class="status-banner hidden" role="status" aria-live="polite"></section>
+
+      <main>
+        <section class="summary-card">
+          <div>
+            <p class="summary-label">Stored Accounts</p>
+            <strong id="account-count">0</strong>
+          </div>
+          <div>
+            <p class="summary-label">Intervals</p>
+            <strong>30s to 300s</strong>
+          </div>
+        </section>
+
+        <section id="accounts-list" class="accounts-list" aria-live="polite"></section>
+
+        <template id="empty-state-template">
+          <div class="empty-state">
+            <h2>No accounts yet</h2>
+            <p>Add a TOTP account manually, paste an `otpauth://` URI, or import an encrypted backup.</p>
+          </div>
+        </template>
+      </main>
+    </section>
+  </div>
+
+  <input id="import-file-input" type="file" accept=".json,application/json" hidden>
+  <input id="qr-file-input" type="file" accept="image/*" hidden>
+
+  <dialog id="account-dialog" class="modal">
+    <form id="account-form" class="modal-content" method="dialog">
+      <div class="modal-header">
+        <h2 id="account-dialog-title">Add Account</h2>
+        <button class="ghost-button" type="button" data-close-dialog="account-dialog">Cancel</button>
+      </div>
+
+      <input id="account-id" type="hidden">
+
+      <label class="field">
+        <span>Account Name</span>
+        <input id="label-input" name="label" type="text" maxlength="120" placeholder="GitHub" required>
+        <small>Display name for the account in your authenticator list.</small>
+      </label>
+
+      <label class="field">
+        <span>Username / Email</span>
+        <input id="username-input" name="username" type="text" maxlength="160" placeholder="you@example.com">
+        <small>Optional username or email shown under the account name.</small>
+      </label>
+
+      <label class="field">
+        <span>Secret or OTP URI</span>
+        <textarea id="secret-input" name="secret" rows="3" placeholder="Base32 secret or otpauth://totp/... URI" required></textarea>
+        <small>Paste a Base32 secret or a full `otpauth://` URI.</small>
+      </label>
+
+      <div class="field-grid">
+        <label class="field">
+          <span>Timer Interval</span>
+          <select id="period-input" name="period"></select>
+          <small>Pick any TOTP interval from 30 to 300 seconds.</small>
+        </label>
+
+        <label class="field">
+          <span>Digits</span>
+          <select id="digits-input" name="digits">
+            <option value="6">6 digits</option>
+            <option value="8">8 digits</option>
+          </select>
+          <small>Most services use 6 digits.</small>
+        </label>
+      </div>
+
+      <div class="field-grid">
+        <label class="field">
+          <span>Algorithm</span>
+          <select id="algorithm-input" name="algorithm">
+            <option value="SHA-1">SHA-1</option>
+            <option value="SHA-256">SHA-256</option>
+            <option value="SHA-512">SHA-512</option>
+          </select>
+          <small>Defaults to SHA-1 unless your provider says otherwise.</small>
+        </label>
+
+        <div class="field field-actions">
+          <span>QR Support</span>
+          <button id="scan-qr-button" class="secondary-button" type="button">Load QR Image</button>
+          <small>Reads QR images with Chromium's built-in barcode detector.</small>
+        </div>
+      </div>
+
+      <p id="account-form-error" class="form-error hidden"></p>
+
+      <div class="modal-footer">
+        <button id="delete-account-button" class="danger-button hidden" type="button">Delete</button>
+        <button class="secondary-button" type="button" data-close-dialog="account-dialog">Cancel</button>
+        <button id="save-account-button" class="primary-button" type="submit">Save Account</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="export-dialog" class="modal">
+    <form id="export-form" class="modal-content compact" method="dialog">
+      <div class="modal-header">
+        <h2>Create Encrypted Backup</h2>
+        <button class="ghost-button" type="button" data-close-dialog="export-dialog">Cancel</button>
+      </div>
+
+      <label class="field">
+        <span>Backup Password</span>
+        <input id="export-password-input" type="password" minlength="8" required>
+      </label>
+
+      <label class="field">
+        <span>Confirm Password</span>
+        <input id="export-password-confirm-input" type="password" minlength="8" required>
+      </label>
+
+      <p id="export-form-error" class="form-error hidden"></p>
+
+      <div class="modal-footer">
+        <button class="secondary-button" type="button" data-close-dialog="export-dialog">Cancel</button>
+        <button class="primary-button" type="submit">Download Backup</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="import-dialog" class="modal">
+    <form id="import-form" class="modal-content compact" method="dialog">
+      <div class="modal-header">
+        <h2>Import Encrypted Backup</h2>
+        <button class="ghost-button" type="button" data-close-dialog="import-dialog">Cancel</button>
+      </div>
+
+      <p class="helper-text">Selected file: <strong id="import-file-name">None</strong></p>
+
+      <label class="field">
+        <span>Backup Password</span>
+        <input id="import-password-input" type="password" minlength="8" required>
+      </label>
+
+      <label class="field checkbox-field">
+        <input id="replace-existing-input" type="checkbox">
+        <span>Replace all existing accounts with this backup</span>
+      </label>
+
+      <p id="import-form-error" class="form-error hidden"></p>
+
+      <div class="modal-footer">
+        <button class="secondary-button" type="button" data-close-dialog="import-dialog">Cancel</button>
+        <button class="primary-button" type="submit">Import Backup</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="password-dialog" class="modal">
+    <form id="password-form" class="modal-content compact" method="dialog">
+      <div class="modal-header">
+        <h2>Change Master Password</h2>
+        <button class="ghost-button" type="button" data-close-dialog="password-dialog">Cancel</button>
+      </div>
+
+      <label class="field">
+        <span>Current Password</span>
+        <input id="current-password-input" type="password" minlength="8" required>
+      </label>
+
+      <label class="field">
+        <span>New Password</span>
+        <input id="new-password-input" type="password" minlength="8" required>
+      </label>
+
+      <label class="field">
+        <span>Confirm New Password</span>
+        <input id="new-password-confirm-input" type="password" minlength="8" required>
+      </label>
+
+      <p id="password-form-error" class="form-error hidden"></p>
+
+      <div class="modal-footer">
+        <button class="secondary-button" type="button" data-close-dialog="password-dialog">Cancel</button>
+        <button class="primary-button" type="submit">Update Password</button>
+      </div>
+    </form>
+  </dialog>
+
+  <template id="account-card-template">
+    <article class="account-card">
+      <button class="account-edit-button" type="button" aria-label="Edit account">Edit</button>
+      <div class="account-details">
+        <h2 class="account-label"></h2>
+        <p class="account-username"></p>
+        <button class="otp-code-button" type="button" title="Copy current code">
+          <span class="otp-code"></span>
+        </button>
+      </div>
+      <div class="progress-stack">
+        <div class="progress-ring">
+          <svg viewBox="0 0 120 120" class="ring-svg" aria-hidden="true">
+            <circle class="ring-track" cx="60" cy="60" r="46"></circle>
+            <circle class="ring-progress" cx="60" cy="60" r="46"></circle>
+          </svg>
+          <span class="progress-seconds"></span>
+        </div>
+        <p class="interval-label"></p>
+      </div>
+    </article>
+  </template>
+
+  <script type="module" src="src/popup.js"></script>
+</body>
+</html>
